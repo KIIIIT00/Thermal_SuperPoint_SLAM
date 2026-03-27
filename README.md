@@ -1,5 +1,7 @@
 # Thermal SuperPoint SLAM
 
+**Note (March 2026):** If you're working on thermal SLAM, check out my latest project: [TRGS-SLAM](https://github.com/umautobots/trgs_slam). It addresses thermal image degradation (motion blur, rolling shutter, and fixed pattern noise) using a 3DGS map, a continuous-time trajectory, and thermal-aware rendering.
+
 Thermal SuperPoint SLAM is a project completed for ROB 530 at the University of Michigan in the winter 2021 semester. This project aimed to create an indirect SLAM algorithm that can successfully perform on thermal imagery. Specifically, we trained a SuperPoint feature detection and description network on thermal imagery and integrated the network with ORB_SLAM2 in place of the ORB feature detector and descriptor. Our combined algorithm runs offline on precomputed keypoints and descriptors. See our [video](https://youtu.be/TwUVYOlQn44) and [report](https://github.com/specarmi/Thermal_SuperPoint_SLAM/blob/master/ROB_530_Final_Report_Thermal_SuperPoint_SLAM.pdf) for the details of the process and our results. Although the project was completed with thermal imagery in mind, the steps described here can be followed with any set of images to yield a SuperPoint network and corresponding vocabulary and use them within a modified version of ORB_SLAM2.
 
 This project utilizes four existing codebases:
@@ -84,7 +86,7 @@ An example of how to use this script is as follows:
 ```
 python rosbag_preprocessor.py ../../datasets/vivid/outdoor_robust_day1.bag /thermal/image_raw outdoor_thermal --apply-clahe
 ```
-This will output all images under the topic `/thermal/image_raw` to the directory *../../datasets/vivid/outdoor_thermal/images_30hz_tstart_0_tstop_inf* and will output a text file containing the timestamps of each image to *../../datasets/vivid/outdoor_thermal/timestamps/timestamps_30hz_tstart_0_tstop_inf.txt*. Note that the framerate, start time, and stop time are denoted in the image folder name and the timestamp filename (in this example the original framerate has been assumed to be 30 Hz). Note also the `--apply-clahe` flag used here. This flag indicates that the input messages are 16 bit images, that CLAHE should be applied, and the result should be stored as an 8 bit image. This is unnecessary for RGB images. 
+This will output all images under the topic `/thermal/image_raw` to the directory *../../datasets/vivid/outdoor_thermal/images_30hz_tstart_0_tstop_inf* and will output a text file containing the timestamps of each image to *../../datasets/vivid/outdoor_thermal/timestamps/timestamps_30hz_tstart_0_tstop_inf.txt*. Note that the framerate, start time, and stop time are denoted in the image folder name and the timestamp filename (in this example the original framerate has been assumed to be 30 Hz). Note also the `--apply-clahe` flag used here. This flag indicates that the input messages are 16 bit images, that CLAHE should be applied, and the result should be stored as an 8 bit image. This is unnecessary for RGB images.
 
 # 4. SuperPoint Training
 
@@ -133,7 +135,7 @@ Note that a hardcoded kmeans iteration limit of 100 was added [here](https://git
 
 # 7. Running SuperPoint SLAM
 
-Our modified version of SuperPoint SLAM runs offline on precomputed keypoints and descriptors. The original SuperPoint SLAM could be run online but utilized the pretrained SuperPoint network provided by the original SuperPoint authors [here](https://github.com/magicleap/SuperPointPretrainedNetwork). The third party implementation we use for training (pytorch-superpoint) employs different layers in the network and our trained networks are incompatible with the original SuperPoint SLAM as a result. As was done in training the vocabulary, our quick fix is to generate keypoints and descriptors offline and import them into SuperPoint SLAM at runtime.  
+Our modified version of SuperPoint SLAM runs offline on precomputed keypoints and descriptors. The original SuperPoint SLAM could be run online but utilized the pretrained SuperPoint network provided by the original SuperPoint authors [here](https://github.com/magicleap/SuperPointPretrainedNetwork). The third party implementation we use for training (pytorch-superpoint) employs different layers in the network and our trained networks are incompatible with the original SuperPoint SLAM as a result. As was done in training the vocabulary, our quick fix is to generate keypoints and descriptors offline and import them into SuperPoint SLAM at runtime.
 
 Assuming the data is in the format described in the ROS Bag Preprocessing section it can be imported using the EuRoC example. The executable can be run with the following arguments:
 ```
@@ -158,7 +160,7 @@ CLAHE GIF:
 python generate_clahe_gif.py ../../datasets/fcav/cadata_sequence.bag /ubol/image_raw clahe --frame-rate-divisor 10 --time-start 20 --time-stop 30
 ```
 
-## Feature Matching 
+## Feature Matching
 
 Feature tracking GIF:
 ```
@@ -167,15 +169,15 @@ python generate_tracking_gif.py ../trained_networks/superpoint_thermal/thermal.p
 ## Vocabulary Image Similarity Scoring
 Image similarity scores using thermal SuperPoint features and the thermal SuperPoint vocabulary:
 ```
-./thirdparty/DBoW2/build/test_vocab thirdparty/DBoW2/test_vocab_data/SuperPoint_Thermal_Keypts_and_Desc/ vocabularies/superpt_thermal.yml.gz 
+./thirdparty/DBoW2/build/test_vocab thirdparty/DBoW2/test_vocab_data/SuperPoint_Thermal_Keypts_and_Desc/ vocabularies/superpt_thermal.yml.gz
 ```
 Image similarity scores using thermal SuperPoint features and the RGB SuperPoint vocabulary:
 ```
-./thirdparty/DBoW2/build/test_vocab thirdparty/DBoW2/test_vocab_data/SuperPoint_Thermal_Keypts_and_Desc/ vocabularies/superpoint_rgb.yml.gz 
+./thirdparty/DBoW2/build/test_vocab thirdparty/DBoW2/test_vocab_data/SuperPoint_Thermal_Keypts_and_Desc/ vocabularies/superpoint_rgb.yml.gz
 ```
 Image similarity scores using RGB SuperPoint features and the RGB SuperPoint vocabulary:
 ```
-./thirdparty/DBoW2/build/test_vocab thirdparty/DBoW2/test_vocab_data/SuperPoint_RGB_Keypts_and_Desc/ vocabularies/superpoint_rgb.yml.gz 
+./thirdparty/DBoW2/build/test_vocab thirdparty/DBoW2/test_vocab_data/SuperPoint_RGB_Keypts_and_Desc/ vocabularies/superpoint_rgb.yml.gz
 ```
 Image similarity scores using RGB SuperPoint features and the Thermal SuperPoint vocabulary:
 ```
@@ -183,7 +185,7 @@ Image similarity scores using RGB SuperPoint features and the Thermal SuperPoint
 ```
 Image similarity scores using ORB features and the ORB vocabulary:
 ```
-./thirdparty/ORB_SLAM2/Examples/Monocular/test_vocab thirdparty/DBoW2/test_vocab_data/ORB_Keypts_and_Desc/ vocabularies/ORBvoc.txt 
+./thirdparty/ORB_SLAM2/Examples/Monocular/test_vocab thirdparty/DBoW2/test_vocab_data/ORB_Keypts_and_Desc/ vocabularies/ORBvoc.txt
 ```
 ## SLAM Recordings
 RGB SuperPoint SLAM run on KITTI sequence 03:
@@ -200,5 +202,5 @@ Thermal SuperPoint SLAM run on thermal images:
 ```
 ORB_SLAM2 run on thermal images:
 ```
-./thirdparty/ORB_SLAM2/Examples/Monocular/mono_euroc vocabularies/ORBvoc.txt configs/ORB_SLAM2/X8500.yaml ../datasets/fcav/cooled/images_clahe_10hz_tstart_108_tstop_inf/ ../datasets/fcav/cooled/timestamps/timestamps_10hz_tstart_108_tstop_inf.txt 
+./thirdparty/ORB_SLAM2/Examples/Monocular/mono_euroc vocabularies/ORBvoc.txt configs/ORB_SLAM2/X8500.yaml ../datasets/fcav/cooled/images_clahe_10hz_tstart_108_tstop_inf/ ../datasets/fcav/cooled/timestamps/timestamps_10hz_tstart_108_tstop_inf.txt
 ```
