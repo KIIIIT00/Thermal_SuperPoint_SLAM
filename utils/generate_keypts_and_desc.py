@@ -4,6 +4,7 @@ import torch
 import matplotlib.pyplot as plt
 import cv2
 import os
+print("CWD:", os.getcwd())
 from pathlib import Path
 import sys
 
@@ -32,8 +33,29 @@ def load_model(opt):
 
     return model, device
 
+
+def load_kdsp_model(opt):
+    repo_root = Path(curr_path).resolve().parents[3]
+    sys.path.append(str(repo_root))
+    from thermal_superpoint.models.student import ThermalSuperPoint
+
+    device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+    model = ThermalSuperPoint(
+        nms_radius=opt.nms_dist,
+        detection_threshold=opt.detection_threshold,
+        descriptor_dim=256,
+    ).to(device)
+
+    ckpt = torch.load(opt.kdsp_ckpt, map_location="cpu")
+    state = ckpt.get("model", ckpt)
+    model.load_state_dict(state)
+    model.eval()
+    return model, device
+
 def read_image(width, height, path):
     input_image = cv2.imread(path)
+    if input_image is None:
+        raise FileNotFoundError(f"Failed to read image: {path}")
     if not width is None:
         input_image = cv2.resize(input_image, (width, height), interpolation=cv2.INTER_AREA)
     input_image = cv2.cvtColor(input_image, cv2.COLOR_RGB2GRAY)
@@ -55,11 +77,24 @@ def get_superpoint_features(model, device, img):
 
     return np.asarray(pts[0], dtype=np.float32).T, np.asarray(desc_sparse[0], dtype=np.float32).T
 
+
+def get_kdsp_features(model, device, img):
+    with torch.no_grad():
+        out = model({"thermal": img.to(device)})
+    kpts = out["keypoints"][0].detach().cpu().numpy()
+    scores = out["keypoint_scores"][0].detach().cpu().numpy()
+    desc = out["descriptors"][0].detach().cpu().numpy()
+    if kpts.shape[0] == 0:
+        return np.zeros((0, 3), dtype=np.float32), np.zeros((0, desc.shape[1] if desc.ndim == 2 else 256), dtype=np.float32)
+    kpts = np.hstack([kpts.astype(np.float32), scores.reshape(-1, 1).astype(np.float32)])
+    return kpts, desc.astype(np.float32)
+
 if __name__ == "__main__":
     # Handle arguments
     parser = argparse.ArgumentParser(description ='Applies a trained SuperPoint network to an image directory and '
         'outputs the resulting keypoints and descriptors in sequentially named YAML files.')
-    parser.add_argument('superpoint_model_path', help = 'Filepath to the trained superpoint model file.', type=str)
+    parser.add_argument('superpoint_model_path', nargs='?', default=None,
+        help = 'Filepath to the trained superpoint model file.')
     parser.add_argument('directory_path', type = str, help='Path to image directory')
     parser.add_argument('out_dir', type=str, 
         help='Output directory name (it will located in the same folder as the original image directory).')
@@ -74,32 +109,40 @@ if __name__ == "__main__":
     parser.add_argument('--output-orb', action='store_true',
         help='Output ORB features instead of SuperPoint features. If True superpoint_model_path and the max-features '
         'are ignored (default: False)')
+    parser.add_argument('--kdsp-ckpt', type=str, default=None,
+        help='ThermalKDSuperPoint checkpoint. If set, uses KDSP instead of pytorch-superpoint.')
     opt = parser.parse_args()
 
     # Load the model
     if not opt.output_orb:
-        print("Loading SuperPoint model...\n")
-        model, device = load_model(opt)
-        print("Model loaded.\n")
+        if opt.kdsp_ckpt:
+            print("Loading ThermalKDSuperPoint model...\n")
+            model, device = load_kdsp_model(opt)
+            print("Model loaded.\n")
+        else:
+            if not opt.superpoint_model_path:
+                parser.error("superpoint_model_path is required unless --kdsp-ckpt is provided")
+            print("Loading SuperPoint model...\n")
+            model, device = load_model(opt)
+            print("Model loaded.\n")
 
     # Create the ORB detector
     if opt.output_orb:
         orb = cv2.ORB_create()
 
     # Find paths to image file paths
-    image_files = os.listdir(opt.directory_path)
+    image_files = sorted([f for f in os.listdir(opt.directory_path) if f.lower().endswith(('.png', '.jpg', '.jpeg', '.bmp', '.tif', '.tiff'))])
     print('Found ' + str(len(image_files)) + ' files in ' + opt.directory_path + '\n')
 
     # Create output directory
-    top_dir = os.path.split(opt.directory_path[:-1])[0]
-    results_dir = top_dir + '/' + opt.out_dir
+    results_dir = str(Path(opt.directory_path).resolve().parent / opt.out_dir)
     if not os.path.exists(results_dir):
         os.makedirs(results_dir)
     print('Using output directory: ' + results_dir + '\n')
 
     # Loop over images, generate keypoints and descriptors, and log them
     for index, image_file in enumerate(sorted(image_files)):
-        image_path = opt.directory_path + image_file
+        image_path = os.path.join(opt.directory_path, image_file)
 
         # Import the image
         if opt.resize is None:
@@ -109,7 +152,10 @@ if __name__ == "__main__":
     
         # Generate keypoints and descriptors
         if not opt.output_orb:
-            kpts, desc = get_superpoint_features(model, device, img)
+            if opt.kdsp_ckpt:
+                kpts, desc = get_kdsp_features(model, device, img)
+            else:
+                kpts, desc = get_superpoint_features(model, device, img)
         else:
             kpts, desc = orb.detectAndCompute(img_np, None)
             kpts = np.asarray([[kp.pt[0], kp.pt[1], kp.response] for kp in kpts])
