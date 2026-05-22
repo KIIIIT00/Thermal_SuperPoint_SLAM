@@ -10,3 +10,9 @@
 [submodule "thirdparty/pytorch-superpoint"]
 	path = thirdparty/pytorch-superpoint
 	url = git@github.com:specarmi/pytorch-superpoint.git
+[submodule "thirdparty/ORB-SLAM3"]
+	path = thirdparty/ORB-SLAM3
+	url = https://github.com/UZ-SLAMLab/ORB_SLAM3.git
+[submodule "thirdparty/thermal-kd-superpoint"]
+	path = thirdparty/thermal-kd-superpoint
+	url = git@github.com:KIIIIT00/ThermalKDSuperPoint.git
