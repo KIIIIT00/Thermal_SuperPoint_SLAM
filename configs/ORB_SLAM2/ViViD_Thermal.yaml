@@ -19,6 +19,10 @@ Camera.p2: -0.0011389876158246133
 Camera.width: 640
 Camera.height: 480
 
+# Input image stream rate used by ORB-SLAM keyframe/relocalization thresholds.
+# The extracted campus_day1 thermal_fieldscale_clahe stream has 1338 frames over 444.39 s (~3.01 Hz).
+Camera.fps: 3.0
+
 # Color order of the images (0: BGR, 1: RGB. It is ignored if images are grayscale)
 Camera.RGB: 1
 
