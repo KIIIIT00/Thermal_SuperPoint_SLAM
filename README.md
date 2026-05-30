@@ -204,3 +204,221 @@ ORB_SLAM2 run on thermal images:
 ```
 ./thirdparty/ORB_SLAM2/Examples/Monocular/mono_euroc vocabularies/ORBvoc.txt configs/ORB_SLAM2/X8500.yaml ../datasets/fcav/cooled/images_clahe_10hz_tstart_108_tstop_inf/ ../datasets/fcav/cooled/timestamps/timestamps_10hz_tstart_108_tstop_inf.txt
 ```
+
+# 9. ThermalKDSuperPoint による特徴抽出と SLAM
+
+このセクションでは `thirdparty/thermal-kd-superpoint` の学習済みモデルを使って特徴量を抽出し、SuperPoint_SLAM を実行するまでの手順を示します。
+
+## 9.1 前提条件
+
+### Python 環境のセットアップ (Ubuntu 24.04)
+
+プロジェクトルートに仮想環境を作成し、必要なパッケージをインストールします。
+
+```bash
+# 仮想環境の作成と依存関係のインストール
+scripts/setup_ubuntu2404_env.sh
+
+# 仮想環境を有効化
+source env/bin/activate
+```
+
+このスクリプトは `env/` 以下に仮想環境を作成し、PyTorch・OpenCV・evo などの依存関係と
+`thirdparty/thermal-kd-superpoint` を editable インストールします。
+
+### SuperPoint_SLAM のビルド (Ubuntu 24.04)
+
+Pangolin を事前にインストールしたうえで以下を実行します。Pangolin のビルド手順は
+`scripts/build_pangolin_local.sh` を参照してください。
+
+```bash
+# Pangolin をローカルにビルドする場合
+scripts/build_pangolin_local.sh
+
+# SuperPoint_SLAM 本体のビルド
+scripts/build_superpoint_slam_ubuntu2404.sh
+```
+
+Pangolin をカスタムパスにインストールした場合は環境変数で指定します。
+
+```bash
+export Pangolin_DIR=/path/to/Pangolin/install/lib/cmake/Pangolin
+export CMAKE_PREFIX_PATH=/path/to/Pangolin/install
+scripts/build_superpoint_slam_ubuntu2404.sh
+```
+
+ビルドが完了すると `thirdparty/SuperPoint_SLAM/Examples/Monocular/mono_euroc` が生成されます。
+
+## 9.2 データの準備
+
+入力データは ROS Bag Preprocessing（セクション 3）で作成した EuRoC 形式のディレクトリを想定しています。
+
+```
+/path/to/dataset/
+  images/           # 画像ファイル (TIMESTAMP.png)
+  timestamps.txt    # タイムスタンプファイル（1行1タイムスタンプ）
+```
+
+サーマル画像が 16 bit の場合は事前に CLAHE を適用してください（セクション 2・3 参照）。
+
+## 9.3 ThermalKDSuperPoint による特徴抽出
+
+学習済みチェックポイントは以下の 2 種類が用意されています。
+
+| チェックポイント | 説明 |
+|---|---|
+| `trained_networks/superpoint_kd_thermal/newloss_vivid/best.pth` | VIVID データセットで新ロスにより学習（推奨） |
+| `trained_networks/superpoint_kd_thermal/oldloss/best.pth` | 旧ロスで学習したモデル |
+
+`--kdsp-ckpt` フラグを指定して `utils/generate_keypts_and_desc.py` を実行します。
+
+```bash
+# 仮想環境を有効化していない場合は先に実行
+source env/bin/activate
+
+python utils/generate_keypts_and_desc.py \
+  --kdsp-ckpt trained_networks/superpoint_kd_thermal/newloss_vivid/best.pth \
+  --image-dir /path/to/dataset/images/ \
+  --out-dir /path/to/dataset/features_kdsp/
+```
+
+主なオプション:
+
+| オプション | デフォルト | 説明 |
+|---|---|---|
+| `--detection-threshold` | `0.015` | キーポイント検出閾値 |
+| `--nms-dist` | `4` | NMS 距離（ピクセル） |
+| `--max-features` | `100000` | 1 画像あたりの最大特徴点数 |
+| `--resize W H` | なし | 画像をリサイズしてから推論 |
+
+実行結果は `--out-dir` 以下に `1.yaml`, `2.yaml`, ... と連番で保存されます。
+
+## 9.4 ボキャブラリの確認
+
+KD SuperPoint 用の学習済みボキャブラリが `vocabularies/` に含まれています。
+
+| ファイル | 説明 |
+|---|---|
+| `vocabularies/superpt_kd_thermal.yml.gz` | VIVID サーマル画像で学習した KD SuperPoint ボキャブラリ（推奨） |
+| `vocabularies/superpt_kd_stage4_max700.yml.gz` | Stage 4 / max700 設定ボキャブラリ（DBoW2 形式） |
+| `vocabularies/superpt_kd_stage4_max700_dbow3.yml.gz` | Stage 4 / max700 設定ボキャブラリ（DBoW3 形式） |
+
+既存のボキャブラリを使用する場合は 9.5 に進んでください。新たにボキャブラリを作成する場合は
+セクション 6 の手順に従い `thirdparty/DBoW2/build/build_superpt_vocab` に特徴量ディレクトリを渡してください。
+
+## 9.5 ThermalKDSuperPoint SLAM の実行
+
+特徴量ディレクトリ・ボキャブラリ・カメラ設定ファイル・タイムスタンプファイルを揃えたうえで
+`mono_euroc` を実行します。
+
+```bash
+./thirdparty/SuperPoint_SLAM/Examples/Monocular/mono_euroc \
+  vocabularies/superpt_kd_thermal.yml.gz \
+  configs/ORB_SLAM2/ViViD_Thermal.yaml \
+  /path/to/dataset/images/ \
+  /path/to/dataset/timestamps.txt \
+  /path/to/dataset/features_kdsp/
+```
+
+- **`vocabularies/superpt_kd_thermal.yml.gz`**: 9.4 で選択したボキャブラリ
+- **`configs/ORB_SLAM2/ViViD_Thermal.yaml`**: カメラキャリブレーション設定。カメラが異なる場合は `configs/ORB_SLAM2/` 以下の別のファイルを使用するか、新たに作成してください。
+- **`/path/to/dataset/images/`**: EuRoC 形式の画像ディレクトリ
+- **`/path/to/dataset/timestamps.txt`**: タイムスタンプファイル
+- **`/path/to/dataset/features_kdsp/`**: 9.3 で生成した特徴量ディレクトリ（末尾 `/` を付けること）
+
+SLAM が正常に動作すると `KeyFrameTrajectory.txt` が出力されます。
+
+ビューアーを無効化して実行する場合は引数に `--no-viewer` を追加します。
+
+```bash
+./thirdparty/SuperPoint_SLAM/Examples/Monocular/mono_euroc \
+  vocabularies/superpt_kd_thermal.yml.gz \
+  configs/ORB_SLAM2/ViViD_Thermal.yaml \
+  /path/to/dataset/images/ \
+  /path/to/dataset/timestamps.txt \
+  /path/to/dataset/features_kdsp/ \
+  --no-viewer
+```
+
+## 9.6 一括実行スクリプト（run_sp_slam_and_eval.sh）
+
+`scripts/run_sp_slam_and_eval.sh` を使うと、特徴量生成・SLAM 実行・追跡安定性評価を一括で行えます。
+Baseline（pytorch-superpoint）と ThermalKDSuperPoint の両方を同時に実行して比較することも可能です。
+
+```bash
+scripts/run_sp_slam_and_eval.sh \
+  --images /path/to/dataset/images/ \
+  --times /path/to/dataset/timestamps.txt \
+  --config configs/ORB_SLAM2/ViViD_Thermal.yaml \
+  --out outputs/slam_eval/my_run \
+  --only kdsp
+```
+
+ThermalKDSuperPoint のみを実行したい場合は `--only kdsp` を指定します。両モデルを比較する場合は
+`--only both`（デフォルト）です。
+
+主なオプション:
+
+| オプション | デフォルト | 説明 |
+|---|---|---|
+| `--kdsp-ckpt PATH` | `trained_networks/superpoint_kd_thermal/newloss_vivid/best.pth` | KD モデルのチェックポイント |
+| `--kdsp-vocab PATH` | `vocabularies/superpt_kd_thermal.yml.gz` | KD モデル用ボキャブラリ |
+| `--classic-model PATH` | `trained_networks/superpoint_thermal/thermal.pth.tar` | Baseline モデル |
+| `--only baseline\|kdsp\|both` | `both` | 実行するモデルの選択 |
+| `--no-viewer` | — | SLAM ビューアーを無効化 |
+| `--skip-feature-gen` | — | 特徴量生成をスキップして既存フォルダを再利用 |
+| `--gt-tum PATH` | — | TUM 形式の GT 軌跡（evo による APE/RPE 評価を有効化） |
+
+実行結果は `--out` で指定したディレクトリ以下に保存されます。
+
+```
+outputs/slam_eval/my_run/
+  features_pytorch_superpoint/       # Baseline 特徴量
+  features_thermal_kd_superpoint/    # KD SuperPoint 特徴量
+  pytorch_superpoint/
+    KeyFrameTrajectory.txt
+    slam.log
+    tracking_stability/
+      tracking_stability_summary.json
+  thermal_kd_superpoint/
+    KeyFrameTrajectory.txt
+    slam.log
+    tracking_stability/
+      tracking_stability_summary.json
+  summary.tsv                        # 両手法の比較サマリー
+```
+
+## 9.7 VIVID データセットでの実行例
+
+VIVID `campus_day1` シーケンスを使って KD SuperPoint SLAM を実行する例です。
+
+```bash
+# 仮想環境を有効化
+source env/bin/activate
+
+# Step 1: 特徴量の生成
+python utils/generate_keypts_and_desc.py \
+  --kdsp-ckpt trained_networks/superpoint_kd_thermal/newloss_vivid/best.pth \
+  --image-dir /path/to/VIVID/campus_day1/img/thermal_fieldscale_clahe/ \
+  --out-dir /path/to/VIVID/campus_day1/img/features_kdsp/
+
+# Step 2: SLAM の実行
+./thirdparty/SuperPoint_SLAM/Examples/Monocular/mono_euroc \
+  vocabularies/superpt_kd_thermal.yml.gz \
+  configs/ORB_SLAM2/ViViD_Thermal.yaml \
+  /path/to/VIVID/campus_day1/img/thermal_fieldscale_clahe/ \
+  /path/to/VIVID/campus_day1/thermal_timestamps.txt \
+  /path/to/VIVID/campus_day1/img/features_kdsp/
+```
+
+または一括スクリプトを使った場合：
+
+```bash
+scripts/run_sp_slam_and_eval.sh \
+  --images /path/to/VIVID/campus_day1/img/thermal_fieldscale_clahe/ \
+  --times /path/to/VIVID/campus_day1/thermal_timestamps.txt \
+  --config configs/ORB_SLAM2/ViViD_Thermal.yaml \
+  --out outputs/slam_eval/vivid_campus_day1 \
+  --only kdsp \
+  --no-viewer
+```
