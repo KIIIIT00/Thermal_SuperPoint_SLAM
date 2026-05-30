@@ -3,3 +3,4 @@ vocabularies/ORBvoc.txt
 .vscode/
 env/
 data/
+**/__pycache__/
