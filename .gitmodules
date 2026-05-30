@@ -16,3 +16,6 @@
 [submodule "thirdparty/thermal-kd-superpoint"]
 	path = thirdparty/thermal-kd-superpoint
 	url = git@github.com:KIIIIT00/ThermalKDSuperPoint.git
+[submodule "thirdparty/DBow3"]
+	path = thirdparty/DBow3
+	url = https://github.com/rmsalinas/DBow3.git

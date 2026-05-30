@@ -1,4 +1,5 @@
 KeyFrameTrajectory.txt
 vocabularies/ORBvoc.txt
 .vscode/
-
+env/
+data/
