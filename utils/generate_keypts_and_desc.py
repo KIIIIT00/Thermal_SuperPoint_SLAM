@@ -4,14 +4,13 @@ import torch
 import matplotlib.pyplot as plt
 import cv2
 import os
-print("CWD:", os.getcwd())
 from pathlib import Path
 import sys
 
 # Import a function from the pytorch-superpoint submodule
 curr_path = os.path.dirname(os.path.abspath(__file__))
-os.chdir(curr_path)
-sys.path.append("../thirdparty/pytorch-superpoint")
+repo_root = Path(curr_path).resolve().parent
+sys.path.append(str(repo_root / "thirdparty" / "pytorch-superpoint"))
 from utils.loader import get_module
 
 def load_model(opt):
@@ -35,8 +34,7 @@ def load_model(opt):
 
 
 def load_kdsp_model(opt):
-    repo_root = Path(curr_path).resolve().parents[3]
-    sys.path.append(str(repo_root))
+    sys.path.append(str(repo_root / "thirdparty" / "thermal-kd-superpoint"))
     from thermal_superpoint.models.student import ThermalSuperPoint
 
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
@@ -58,7 +56,8 @@ def read_image(width, height, path):
         raise FileNotFoundError(f"Failed to read image: {path}")
     if not width is None:
         input_image = cv2.resize(input_image, (width, height), interpolation=cv2.INTER_AREA)
-    input_image = cv2.cvtColor(input_image, cv2.COLOR_RGB2GRAY)
+    if input_image.ndim == 3:
+        input_image = cv2.cvtColor(input_image, cv2.COLOR_BGR2GRAY)
     input_image_float = input_image.astype('float32') / 255.0
     H, W = input_image_float.shape[0], input_image_float.shape[1]
     return input_image, torch.tensor(input_image_float, dtype=torch.float32).reshape(1, 1, H, W)
@@ -95,11 +94,17 @@ if __name__ == "__main__":
         'outputs the resulting keypoints and descriptors in sequentially named YAML files.')
     parser.add_argument('superpoint_model_path', nargs='?', default=None,
         help = 'Filepath to the trained superpoint model file.')
-    parser.add_argument('directory_path', type = str, help='Path to image directory')
-    parser.add_argument('out_dir', type=str, 
+    parser.add_argument('directory_path', nargs='?', default=None, help='Path to image directory')
+    parser.add_argument('out_dir', nargs='?', default=None,
         help='Output directory name (it will located in the same folder as the original image directory).')
-    parser.add_argument('--max-features', type=int, default=100e3, 
-        help='The maximum number of features to keep per image (default: 100e3).')
+    parser.add_argument('--superpoint-model', dest='superpoint_model_path_opt', default=None,
+        help='Filepath to the trained pytorch-superpoint model file.')
+    parser.add_argument('--image-dir', dest='directory_path_opt', default=None,
+        help='Path to image directory.')
+    parser.add_argument('--out-dir', dest='out_dir_opt', default=None,
+        help='Output directory name or path. Relative paths are placed next to the image directory.')
+    parser.add_argument('--max-features', type=int, default=100000, 
+        help='The maximum number of features to keep per image (default: 100000).')
     parser.add_argument('--resize', type=int, default=None, nargs=2,
         help='The width and height to resize the image to (default: None, the original size is kept)')
     parser.add_argument('--detection-threshold', type=float, default=0.015, 
@@ -112,6 +117,15 @@ if __name__ == "__main__":
     parser.add_argument('--kdsp-ckpt', type=str, default=None,
         help='ThermalKDSuperPoint checkpoint. If set, uses KDSP instead of pytorch-superpoint.')
     opt = parser.parse_args()
+    if opt.superpoint_model_path_opt:
+        opt.superpoint_model_path = opt.superpoint_model_path_opt
+    if opt.directory_path_opt:
+        opt.directory_path = opt.directory_path_opt
+    if opt.out_dir_opt:
+        opt.out_dir = opt.out_dir_opt
+
+    if opt.directory_path is None or opt.out_dir is None:
+        parser.error("directory_path and out_dir are required. Use positional arguments or --image-dir/--out-dir.")
 
     # Load the model
     if not opt.output_orb:
@@ -135,7 +149,13 @@ if __name__ == "__main__":
     print('Found ' + str(len(image_files)) + ' files in ' + opt.directory_path + '\n')
 
     # Create output directory
-    results_dir = str(Path(opt.directory_path).resolve().parent / opt.out_dir)
+    out_path = Path(opt.out_dir)
+    if not out_path.is_absolute():
+        # Resolve relative to CWD so that paths like "outputs/slam_eval/..." work as expected.
+        # (Previously resolved relative to the image directory's parent, which caused features
+        # to land inside the data tree when a multi-segment relative path was supplied.)
+        out_path = Path.cwd() / out_path
+    results_dir = str(out_path)
     if not os.path.exists(results_dir):
         os.makedirs(results_dir)
     print('Using output directory: ' + results_dir + '\n')
